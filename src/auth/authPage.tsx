@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { User } from '../model';
 import Login from './Login';
 import Register from './Register';
-import './auth.css';
+import './Auth.css';
 
 interface Props {
   onAuthenticated?: (user: User) => void;
