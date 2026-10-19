@@ -531,7 +531,6 @@ export default function AdminPage({ onLogout }: Props) {
             type="button"
             className="admin-btn admin-btn-outline"
             onClick={() => {
-              authService.logout();
               onLogout?.();
             }}
           >

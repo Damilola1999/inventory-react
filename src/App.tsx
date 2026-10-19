@@ -20,10 +20,20 @@ interface CartItem {
   quantity: number;
 }
 
-function Nav() {
+function Nav({
+  user,
+  onLogout,
+}: {
+  user: User;
+  onLogout: () => void;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
-  const user = authService.getStoredUser();
+
+  const handleLogout = () => {
+    onLogout();
+    navigate('/login');
+  };
 
   return (
     <nav className="app-nav">
@@ -34,26 +44,26 @@ function Nav() {
       >
         Cart
       </Link>
-      {user && user.role === 'admin' && (
-        <>
-          <Link
-            to="/admin"
-            className={location.pathname === '/admin' ? 'nav-active' : ''}
-          >
-            Admin
-          </Link>
-          <button
-            type="button"
-            className="nav-logout"
-            onClick={() => {
-              authService.logout();
-              navigate('/login');
-            }}
-          >
-            Logout
-          </button>
-        </>
+      {user.role === 'admin' && (
+        <Link
+          to="/admin"
+          className={location.pathname === '/admin' ? 'nav-active' : ''}
+        >
+          Admin
+        </Link>
       )}
+      <div className="nav-account">
+        <span className="nav-user" title={user.email}>
+          {user.name}
+        </span>
+        <button
+          type="button"
+          className="nav-logout"
+          onClick={handleLogout}
+        >
+          Logout
+        </button>
+      </div>
     </nav>
   );
 }
@@ -73,7 +83,7 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AppRoutes() {
+function AppRoutes({ onLogout }: { onLogout: () => void }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -119,7 +129,7 @@ function AppRoutes() {
         element={
           <CartPage
             onBack={() => setSelectedId(null)}
-            onAuthenticated={() => window.location.reload()}
+            onAuthenticated={onLogout}
           />
         }
       />
@@ -127,7 +137,7 @@ function AppRoutes() {
         path="/admin"
         element={
           <RequireAdmin>
-            <AdminPage onLogout={() => window.location.reload()} />
+            <AdminPage onLogout={onLogout} />
           </RequireAdmin>
         }
       />
@@ -138,11 +148,17 @@ function AppRoutes() {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
 
+  const handleLogout = () => {
+    authService.logout();
+    localStorage.removeItem('inventory_cart');
+    setUser(null);
+  };
+
   if (user) {
     return (
       <BrowserRouter>
-        <Nav />
-        <AppRoutes />
+        <Nav user={user} onLogout={handleLogout} />
+        <AppRoutes onLogout={handleLogout} />
       </BrowserRouter>
     );
   }

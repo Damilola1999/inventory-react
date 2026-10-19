@@ -20,8 +20,24 @@
   text-decoration: underline;
 }
 
-.app-nav .nav-logout {
+.app-nav .nav-account {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-nav .nav-user {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f172a;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-nav .nav-logout {
   border: 1px solid #d5dbe6;
   background: #fff;
   color: #334155;
@@ -33,6 +49,8 @@
 
 .app-nav .nav-logout:hover {
   background: #f8fafc;
+  border-color: #fecaca;
+  color: #b91c1c;
 }
 
 * {
