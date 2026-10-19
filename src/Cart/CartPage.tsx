@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { orderService, authService } from '../service';
 import type { Product } from '../model';
 import './Cart.css';
@@ -12,6 +12,11 @@ interface Props {
   onBack: () => void;
   onAuthenticated: () => void;
 }
+
+const newKey = (): string =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `key-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function CartPage({ onBack, onAuthenticated }: Props) {
   const [cart, setCart] = useState<CartItem[]>(() => {
@@ -28,6 +33,7 @@ export default function CartPage({ onBack, onAuthenticated }: Props) {
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const checkoutKey = useRef<string>(newKey());
 
   useEffect(() => {
     const onCartUpdated = () => {
@@ -82,21 +88,27 @@ export default function CartPage({ onBack, onAuthenticated }: Props) {
     setPlacing(true);
     setError('');
     setSuccess('');
+    // Stable key per checkout attempt so a retried request cannot create two orders
+    const idempotencyKey = checkoutKey.current;
     try {
-      await orderService.create({
-        items: cart.map((c) => ({
-          productId: c.product._id,
-          quantity: c.quantity,
-        })),
-        shippingAddress: {
-          line1: shippingLine1.trim(),
-          city: shippingCity.trim(),
-          country: 'NG',
+      await orderService.create(
+        {
+          items: cart.map((c) => ({
+            productId: c.product._id,
+            quantity: c.quantity,
+          })),
+          shippingAddress: {
+            line1: shippingLine1.trim(),
+            city: shippingCity.trim(),
+            country: 'NG',
+          },
         },
-      });
+        idempotencyKey,
+      );
       setSuccess('Order placed successfully!');
       localStorage.removeItem('inventory_cart');
       setCart([]);
+      checkoutKey.current = newKey();
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);

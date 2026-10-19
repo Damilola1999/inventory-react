@@ -34,25 +34,52 @@ function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1200;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const detail =
-      data?.message ??
-      data?.error ??
-      `Request failed with status ${res.status}`;
-    throw new ApiError(detail, res.status);
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    let res: Response;
+
+    try {
+      res = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...options.headers,
+        },
+      });
+    } catch {
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw new ApiError('Cannot reach the server. Check your connection and try again.', 0);
+    }
+
+    if (RETRYABLE_STATUS.has(res.status) && attempt < MAX_ATTEMPTS) {
+      await sleep(RETRY_DELAY_MS * attempt);
+      continue;
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail =
+        data?.message ??
+        data?.error ??
+        `Request failed with status ${res.status}`;
+      throw new ApiError(detail, res.status);
+    }
+    return data as T;
   }
-  return data as T;
+
+  throw new ApiError('Request failed', 0);
 }
 
 export const productService = {

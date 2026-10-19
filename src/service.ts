@@ -17,45 +17,77 @@ const API_URL: string =
 const TOKEN_KEY = "inventory_token";
 const USER_KEY = "inventory_user";
 
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1200;
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const token = authService.getToken();
 
-  const res = await fetch(
-    `${API_URL}${path}`,
-    {
-      ...options,
-      headers: {
-        "Content-Type":
-          "application/json",
-        ...(token
-          ? {
-              Authorization: `Bearer ${token}`,
-            }
-          : {}),
-        ...options.headers,
-      },
-    },
-  );
+  let lastError: unknown;
 
-  const data = await res
-    .json()
-    .catch(() => ({}));
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    let res: Response;
 
-  if (!res.ok) {
-    const detail =
-      data?.message ??
-      data?.error ??
-      (Array.isArray(data?.errors)
-        ? data.errors.join(", ")
-        : undefined) ??
-      `Request failed with status ${res.status}`;
-    throw new ApiError(detail, res.status);
+    try {
+      res = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type":
+            "application/json",
+          ...(token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {}),
+          ...options.headers,
+        },
+      });
+    } catch (err) {
+      // Network-level failure (server restarting, connection closed, offline)
+      lastError = err;
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw new ApiError(
+        "Cannot reach the server. Check your connection and try again.",
+        0,
+      );
+    }
+
+    if (RETRYABLE_STATUS.has(res.status) && attempt < MAX_ATTEMPTS) {
+      await sleep(RETRY_DELAY_MS * attempt);
+      continue;
+    }
+
+    const data = await res
+      .json()
+      .catch(() => ({}));
+
+    if (!res.ok) {
+      const detail =
+        data?.message ??
+        data?.error ??
+        (Array.isArray(data?.errors)
+          ? data.errors.join(", ")
+          : undefined) ??
+        `Request failed with status ${res.status}`;
+      throw new ApiError(detail, res.status);
+    }
+
+    return data as T;
   }
 
-  return data as T;
+  throw lastError instanceof Error
+    ? lastError
+    : new ApiError("Request failed", 0);
 }
 
 function persistSession({
@@ -241,21 +273,27 @@ export const orderService = {
     return data.order;
   },
 
-  async create(payload: {
-    items: { productId: string; quantity: number }[];
-    shippingAddress: {
-      line1: string;
-      city: string;
-      state?: string;
-      postalCode?: string;
-      country?: string;
-    };
-  }): Promise<Order> {
+  async create(
+    payload: {
+      items: { productId: string; quantity: number }[];
+      shippingAddress: {
+        line1: string;
+        city: string;
+        state?: string;
+        postalCode?: string;
+        country?: string;
+      };
+    },
+    idempotencyKey?: string,
+  ): Promise<Order> {
     const data = await request<{
       success: boolean;
       order: Order;
     }>("/api/orders", {
       method: "POST",
+      headers: idempotencyKey
+        ? { "Idempotency-Key": idempotencyKey }
+        : undefined,
       body: JSON.stringify(payload),
     });
     return data.order;
